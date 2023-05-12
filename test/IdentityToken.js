@@ -1,145 +1,196 @@
+// Import the required libraries from Hardhat
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
 
-describe("IdentityToken", function () {
-  let owner, user1, user2, user3, identityTokens;
+// Import the contract ABI and bytecode from the compiled artifacts
+const contract = require("../artifacts/contracts/IdentityBoundToken.sol/IdentityBoundToken.json");
 
-  before(async () => {
-    [owner, user1, user2, user3] = await ethers.getSigners();
-    const IdentityTokensContract = await ethers.getContractFactory(
-      "IdentityToken"
-    );
-    identityTokens = await IdentityTokensContract.deploy(
-      "Identity Token",
-      "IDT"
-    );
+// Start the test suite for the IdentityBoundToken contract
+describe("IdentityBoundToken", function () {
+  // Define variables to be used in the tests
+  let IdentityBoundToken;
+  let identityBoundToken;
+  let owner;
+  let addr1;
+  let addr2;
+
+  // Use a hook to set up the contract instance and test accounts before each test
+  beforeEach(async function () {
+    // Get the accounts from Hardhat's built-in provider
+    [owner, addr1, addr2] = await ethers.getSigners();
+
+    // Deploy the IdentityBoundToken contract
+    IdentityBoundToken = await ethers.getContractFactory("IdentityBoundToken");
+    identityBoundToken = await IdentityBoundToken.deploy("MyToken", "MTK");
+
+    // Wait for the contract to be mined and deployed
+    await identityBoundToken.deployed();
   });
 
-  it("Should return the name and ticker", async function () {
-    expect(await identityTokens.name()).to.equal("Identity Token");
-    expect(await identityTokens.ticker()).to.equal("IDT");
+  // Test the token creation function
+  describe("createToken", function () {
+    it("should create a new token with the given identity data", async function () {
+      // Define the identity data to associate with the new token
+      const identityData = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
+
+      // Call the createToken function to create a new token with the given identity data
+      await identityBoundToken.createToken(addr1.address, identityData);
+
+      // Check that the token was created successfully
+      const tokenExists = await identityBoundToken.isIdentityExists(
+        addr1.address
+      );
+      expect(tokenExists).to.equal(true);
+
+      // Check that the identity data associated with the token is correct
+      const retrievedIdentityData = await identityBoundToken.getIdentityData(
+        addr1.address
+      );
+      expect(retrievedIdentityData.receiverIdentity).to.equal(
+        identityData.receiverIdentity
+      );
+      expect(retrievedIdentityData.url).to.equal(identityData.url);
+      expect(retrievedIdentityData.idNum).to.equal(identityData.idNum);
+      expect(retrievedIdentityData.timestamp).to.equal(identityData.timestamp);
+    });
+
+    it("should not allow the creation of a new token for an existing identity", async function () {
+      // Define the identity data to associate with the new token
+      const identityData1 = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
+
+      // Call the createToken function to create a new token with the given identity data
+      await identityBoundToken.createToken(addr1.address, identityData1);
+
+      // Define a different set of identity data to associate with the same identity
+      const identityData2 = {
+        receiverIdentity: "Jane Doe",
+        url: "https://janedoe.com",
+        idNum: 54321,
+        timestamp: Date.now(),
+      };
+
+      // Call the createToken function again to try to create a new token with the same identity
+      await expect(
+        identityBoundToken.createToken(addr1.address, identityData2)
+      ).to.be.revertedWith("Identity already exists");
+    });
   });
 
-  it("tokenExists should return false for new query", async function () {
-    expect(await identityTokens.tokenExists(user1.address)).to.equal(false);
+  // Test the token removal function
+  describe("removeToken", function () {
+    it("should allow the token holder or the issuer to remove an existing token", async function () {
+      // Define the identity data to associate with the new token
+      const identityData = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
+
+      // Call the createToken function to create a new token with the given identity data
+      await identityBoundToken.createToken(addr1.address, identityData);
+
+      // Call the removeToken function to remove the token
+      await identityBoundToken.connect(addr1).removeToken(addr1.address);
+
+      // Check that the token was removed successfully
+      const tokenExists = await identityBoundToken.isIdentityExists(
+        addr1.address
+      );
+      expect(tokenExists).to.equal(false);
+    });
+
+    it("should not allow a third party to remove an existing token", async function () {
+      // Define the identity data to associate with the new token
+      const identityData = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
+
+      // Call the createToken function to create a new token with the given identity data
+      await identityBoundToken.createToken(addr1.address, identityData);
+
+      // Call the removeToken function from a different account to try to remove the token
+      await expect(
+        identityBoundToken.connect(addr2).removeToken(addr1.address)
+      ).to.be.revertedWith(
+        "Only token holder or issuer can remove their identity tokens"
+      );
+
+      // Check that the token was not removed
+      const tokenExists = await identityBoundToken.isIdentityExists(
+        addr1.address
+      );
+      expect(tokenExists).to.equal(true);
+    });
   });
 
-  it("Should create a new identity token", async function () {
-    const tokenData = {
-      identity: "John Doe",
-      url: "https://johndoe.com",
-      score: 99,
-      timestamp: new Date().getTime(),
-    };
-    await identityTokens.createToken(user1.address, tokenData);
-  });
+  // Test the identity data update function
+  describe("updateIdentityData", function () {
+    it("should update the identity data associated with an existing token", async function () {
+      // Define the initial identity data to associate with the new token
+      const initialIdentityData = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
 
-  it("tokenExists should return true", async function () {
-    expect(await identityTokens.tokenExists(user1.address)).to.equal(true);
-  });
+      // Call the createToken function to create a new token with the initial identity data
+      await identityBoundToken.createToken(addr1.address, initialIdentityData);
 
-  it("getTokenData should return the correct identity", async function () {
-    const tokenData = await identityTokens.getTokenData(user1.address);
-    expect(tokenData.identity).to.equal("John Doe");
-  });
+      // Define the new identity data to associate with the same token
+      const newIdentityData = {
+        receiverIdentity: "Jane Doe",
+        url: "https://janedoe.com",
+        idNum: 54321,
+        timestamp: Date.now(),
+      };
 
-  it("Operator should be able to update identity token data", async function () {
-    const updatedTokenData = {
-      identity: "John Doe",
-      url: "https://johndoe.com",
-      score: 80,
-      timestamp: new Date().getTime(),
-    };
-    await identityTokens.updateToken(user1.address, updatedTokenData);
-  });
+      // Call the updateIdentityData function to update the identity data associated with the token
+      await identityBoundToken.updateIdentityData(
+        addr1.address,
+        newIdentityData
+      );
 
-  it("getTokenData should return the updated value", async function () {
-    const tokenData = await identityTokens.getTokenData(user1.address);
-    expect(tokenData.score).to.equal(80);
-  });
+      // Check that the identity data associated with the token is updated correctly
+      const retrievedIdentityData = await identityBoundToken.getIdentityData(
+        addr1.address
+      );
+      expect(retrievedIdentityData.receiverIdentity).to.equal(
+        newIdentityData.receiverIdentity
+      );
+      expect(retrievedIdentityData.url).to.equal(newIdentityData.url);
+      expect(retrievedIdentityData.idNum).to.equal(newIdentityData.idNum);
+      expect(retrievedIdentityData.timestamp).to.equal(
+        newIdentityData.timestamp
+      );
+    });
 
-  it("User should be able to delete their identity token", async function () {
-    await identityTokens.connect(user1).removeToken(user1.address);
-  });
+    it("should not allow the update of identity data for a non-existing token", async function () {
+      // Define the identity data to associate with the new token
+      const identityData = {
+        receiverIdentity: "John Doe",
+        url: "https://johndoe.com",
+        idNum: 12345,
+        timestamp: Date.now(),
+      };
 
-  it("tokenExists should return false after delete", async function () {
-    expect(await identityTokens.tokenExists(user1.address)).to.equal(false);
-  });
-
-  it("profileExists should return false", async function () {
-    expect(
-      await identityTokens.profileExists(user1.address, user2.address)
-    ).to.equal(false);
-  });
-
-  it("Should create a new identity token for user2", async function () {
-    const tokenData = {
-      identity: "Alice Smith",
-      url: "https://github.com",
-      score: 42,
-      timestamp: new Date().getTime(),
-    };
-    await identityTokens.createToken(user2.address, tokenData);
-  });
-
-  it("3rd party should be able to create a profile", async function () {
-    const profileData = {
-      identity: "Alice",
-      url: "https://google.com",
-      score: 92,
-      timestamp: new Date().getTime(),
-    };
-    await identityTokens
-      .connect(user1)
-      .createProfile(user2.address, profileData);
-  });
-
-  it("getProfileData should return the profile data", async function () {
-    const profileData = await identityTokens.getProfileData(
-      user1.address,
-      user2.address
-    );
-    expect(profileData.score).to.equal(92);
-  });
-
-  it("profileExists should return true", async function () {
-    expect(
-      await identityTokens.profileExists(user1.address, user2.address)
-    ).to.equal(true);
-  });
-
-  it("listProfiles should return profile addresses", async function () {
-    const profiles = await identityTokens.listProfiles(user2.address);
-    expect(profiles[0]).to.equal(user1.address);
-  });
-
-  it("User should be able to delete their profile", async function () {
-    await identityTokens
-      .connect(user2)
-      .deleteProfile(user1.address, user2.address);
-  });
-
-  it("profileExists should return false after removal", async function () {
-    expect(
-      await identityTokens.profileExists(user1.address, user2.address)
-    ).to.equal(false);
-  });
-
-  it("removeToken should remove all associated profiles", async function () {
-    const tokenData = {
-      identity: "Bob Smith",
-      url: "https://ethereum.org",
-      score: 37,
-      timestamp: new Date().getTime(),
-    };
-    await identityTokens.createToken(user3.address, tokenData);
-    await identityTokens.connect(user1).createProfile(user3.address, tokenData);
-    expect(
-      await identityTokens.profileExists(user1.address, user3.address)
-    ).to.equal(true);
-    await identityTokens.connect(user3).removeToken(user3.address);
-    expect(
-      await identityTokens.profileExists(user1.address, user3.address)
-    ).to.equal(false);
+      // Call the updateIdentityData function to try to update the identity data for a non-existing token
+      await expect(
+        identityBoundToken.updateIdentityData(addr1.address, identityData)
+      ).to.be.revertedWith("Identity does not exist");
+    });
   });
 });

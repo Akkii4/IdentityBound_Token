@@ -82,10 +82,10 @@ contract IdentityBoundToken {
      * @dev Function to remove an existing identity token.
      * @param _identity The address of the identity whose token to remove.
      */
-    function removeToken(address _identity) external onlyIssuer {
+    function removeToken(address _identity) external {
         // Check if the caller is the identity token holder or the issuer
         require(
-            msg.sender == _identity,
+            msg.sender == _identity || msg.sender == issuer,
             "Only token holder or issuer can remove their identity tokens"
         );
 
